@@ -1,0 +1,75 @@
+local p = game:GetService("Players").LocalPlayer
+local sg = Instance.new("ScreenGui", p:WaitForChild("PlayerGui"))
+sg.Name = "HPDisplayV2"
+
+local main = Instance.new("Frame", sg)
+main.Size = UDim2.new(0, 300, 0, 80)
+main.Position = UDim2.new(0.5, -150, 0.05, 0)
+main.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+main.BackgroundTransparency = 0.3
+main.BorderSizePixel = 0
+
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
+
+local hpBarBg = Instance.new("Frame", main)
+hpBarBg.Size = UDim2.new(0.9, 0, 0, 25)
+hpBarBg.Position = UDim2.new(0.05, 0, 0.5, -12)
+hpBarBg.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+hpBarBg.BorderSizePixel = 0
+Instance.new("UICorner", hpBarBg).CornerRadius = UDim.new(0, 5)
+
+local hpBar = Instance.new("Frame", hpBarBg)
+hpBar.Size = UDim2.new(1, 0, 1, 0)
+hpBar.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
+hpBar.BorderSizePixel = 0
+Instance.new("UICorner", hpBar).CornerRadius = UDim.new(0, 5)
+
+local hpText = Instance.new("TextLabel", main)
+hpText.Size = UDim2.new(1, 0, 0, 30)
+hpText.Position = UDim2.new(0, 0, 0.1, 0)
+hpText.BackgroundTransparency = 1
+hpText.TextColor3 = Color3.fromRGB(255, 255, 255)
+hpText.TextSize = 20
+hpText.Text = "HEALTH: 100/100"
+hpText.Font = Enum.Font.GothamBold
+
+local function updateHP()
+    local char = p.Character
+    if char then
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            local cur = math.floor(hum.Health)
+            local max = math.floor(hum.MaxHealth)
+            local perc = hum.Health / hum.MaxHealth
+            
+            hpBar.Size = UDim2.new(perc, 0, 1, 0)
+            hpText.Text = string.format("HEALTH: %d/%d", cur, max)
+            
+            if perc > 0.6 then
+                hpBar.BackgroundColor3 = Color3.fromRGB(0, 200, 80)
+            elseif perc > 0.3 then
+                hpBar.BackgroundColor3 = Color3.fromRGB(255, 180, 0)
+            else
+                hpBar.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+            end
+        end
+    end
+end
+
+p.CharacterAdded:Connect(function(char)
+    wait(0.5)
+    local hum = char:WaitForChild("Humanoid", 2)
+    if hum then
+        hum.HealthChanged:Connect(updateHP)
+    end
+    updateHP()
+end)
+
+if p.Character then
+    local hum = p.Character:FindFirstChild("Humanoid")
+    if hum then
+        hum.HealthChanged:Connect(updateHP)
+    end
+end
+
+updateHP()
