@@ -135,211 +135,291 @@ local function updateOwnHP()
     end
 end
 
---========== ПРОСТОЙ ESP (БЕЗ ЛАГОВ) ==========--
-if CONFIG.ESP.ENABLED then
+-- Devil Hunter - Ultra Optimized ESP 240 FPS
+local player = game.Players.LocalPlayer
+local runService = game:GetService("RunService")
+local players = game:GetService("Players")
+local camera = workspace.CurrentCamera
+
+--========== УЛЬТРА ОПТИМИЗАЦИЯ ==========--
+local ESP_CONFIG = {
+    ENABLED = true,
+    MAX_DISTANCE = 2000,
+    UPDATE_RATE = 240, -- FPS для ESP
+    MAX_UPDATES_PER_FRAME = 2, -- Макс объектов за кадр
+    
+    -- Режимы отрисовки
+    MODE = "TEXT_ONLY", -- "TEXT_ONLY", "SIMPLE_BOX", "MINIMAL"
+    
+    -- Настройки текста
+    TEXT = {
+        SHOW_NAME = true,
+        SHOW_HEALTH = true,
+        SHOW_DISTANCE = true,
+        SIZE = 12,
+        COLOR = Color3.fromRGB(255, 255, 255),
+        OUTLINE = true
+    },
+    
+    -- Настройки боксов
+    BOX = {
+        ENABLED = false, -- Выключено для оптимизации
+        THICKNESS = 1,
+        COLOR = Color3.fromRGB(255, 255, 255)
+    }
+}
+
+--========== ОПТИМИЗИРОВАННЫЙ ESP ==========--
+local espData = {}
+local textPool = {}
+local lastUpdate = 0
+local updateQueue = {}
+local processedCount = 0
+
+-- Функция для получения текста из пула
+local function getTextFromPool()
+    if #textPool > 0 then
+        local text = textPool[#textPool]
+        textPool[#textPool] = nil
+        text.Visible = true
+        return text
+    end
+    
+    local text = Instance.new("TextLabel")
+    text.BackgroundTransparency = 0.7
+    text.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    text.TextColor3 = ESP_CONFIG.TEXT.COLOR
+    text.TextSize = ESP_CONFIG.TEXT.SIZE
+    text.Font = Enum.Font.GothamBold
+    text.BorderSizePixel = 0
+    text.TextStrokeTransparency = ESP_CONFIG.TEXT.OUTLINE and 0.7 or 1
+    text.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    text.ZIndex = 10
+    text.Visible = true
+    return text
+end
+
+-- Функция возврата текста в пул
+local function returnTextToPool(text)
+    text.Visible = false
+    text.Text = ""
+    text.Parent = nil
+    table.insert(textPool, text)
+end
+
+-- Создание ESP для игрока
+local function createESP(targetPlayer)
+    if targetPlayer == player then return end
+    
+    local esp = {
+        player = targetPlayer,
+        text = nil,
+        lastUpdate = 0,
+        lastPosition = Vector3.new(0, 0, 0),
+        character = nil,
+        humanoid = nil
+    }
+    
+    esp.text = getTextFromPool()
+    espData[targetPlayer] = esp
+end
+
+-- Удаление ESP
+local function removeESP(targetPlayer)
+    local esp = espData[targetPlayer]
+    if esp and esp.text then
+        returnTextToPool(esp.text)
+    end
+    espData[targetPlayer] = nil
+end
+
+-- Быстрый расчет дистанции (без квадратного корня для сравнения)
+local function fastDistanceSquared(pos1, pos2)
+    local dx = pos1.X - pos2.X
+    local dy = pos1.Y - pos2.Y
+    local dz = pos1.Z - pos2.Z
+    return dx*dx + dy*dy + dz*dz
+end
+
+-- Оптимизированное обновление ESP (по одному игроку за вызов)
+local function updateSingleESP(esp)
+    local targetPlayer = esp.player
+    
+    -- Быстрая проверка на доступность
+    if not targetPlayer or not targetPlayer.Parent then
+        if esp.text then esp.text.Visible = false end
+        return false
+    end
+    
+    -- Получаем персонажа
+    local character = targetPlayer.Character
+    if not character then
+        if esp.text then esp.text.Visible = false end
+        return false
+    end
+    
+    -- Получаем Humanoid
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoid then
+        if esp.text then esp.text.Visible = false end
+        return false
+    end
+    
+    -- Получаем позицию (используем HumanoidRootPart или Torso)
+    local rootPart = character:FindFirstChild("HumanoidRootPart") or 
+                     character:FindFirstChild("Torso") or 
+                     character:FindFirstChild("UpperTorso")
+    
+    if not rootPart then
+        if esp.text then esp.text.Visible = false end
+        return false
+    end
+    
+    local position = rootPart.Position
+    
+    -- Быстрая проверка дистанции (без квадратного корня)
+    local cameraPos = camera.CFrame.Position
+    local distSquared = fastDistanceSquared(position, cameraPos)
+    local maxDistSquared = ESP_CONFIG.MAX_DISTANCE * ESP_CONFIG.MAX_DISTANCE
+    
+    if distSquared > maxDistSquared then
+        if esp.text then esp.text.Visible = false end
+        return false
+    end
+    
+    -- Конвертация в экранные координаты
+    local screenPos, onScreen = camera:WorldToViewportPoint(position)
+    
+    if not onScreen or screenPos.Z < 0 then
+        if esp.text then esp.text.Visible = false end
+        return false
+    end
+    
+    -- Собираем текст
+    local textLines = {}
+    
+    if ESP_CONFIG.TEXT.SHOW_NAME then
+        table.insert(textLines, targetPlayer.Name)
+    end
+    
+    if ESP_CONFIG.TEXT.SHOW_HEALTH then
+        local health = math.floor(humanoid.Health)
+        local maxHealth = math.floor(humanoid.MaxHealth)
+        table.insert(textLines, string.format("HP: %d/%d", health, maxHealth))
+    end
+    
+    if ESP_CONFIG.TEXT.SHOW_DISTANCE then
+        local distance = math.sqrt(distSquared)
+        table.insert(textLines, string.format("%dm", math.floor(distance)))
+    end
+    
+    -- Объединяем строки
+    local fullText = table.concat(textLines, "\n")
+    
+    -- Обновляем текст
+    if not esp.text.Parent then
+        esp.text.Parent = player:WaitForChild("PlayerGui")
+    end
+    
+    esp.text.Text = fullText
+    esp.text.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y - 50)
+    esp.text.Visible = true
+    
+    -- Меняем цвет в зависимости от здоровья
+    local healthPercent = humanoid.Health / humanoid.MaxHealth
+    if healthPercent > 0.6 then
+        esp.text.TextColor3 = Color3.fromRGB(0, 255, 100)
+    elseif healthPercent > 0.3 then
+        esp.text.TextColor3 = Color3.fromRGB(255, 255, 0)
+    else
+        esp.text.TextColor3 = Color3.fromRGB(255, 50, 50)
+    end
+    
+    esp.lastPosition = position
+    esp.lastUpdate = tick()
+    esp.character = character
+    esp.humanoid = humanoid
+    
+    return true
+end
+
+-- Очередь обновлений с распределением по кадрам
+local function processESPQueue()
+    local currentTime = tick()
+    local timeBetweenUpdates = 1 / ESP_CONFIG.UPDATE_RATE
+    
+    if currentTime - lastUpdate < timeBetweenUpdates then
+        return
+    end
+    
+    lastUpdate = currentTime
+    
+    -- Собираем очередь для обновления
+    updateQueue = {}
+    for targetPlayer, esp in pairs(espData) do
+        table.insert(updateQueue, esp)
+    end
+    
+    -- Сортируем по дистанции (ближние обновляем чаще)
+    table.sort(updateQueue, function(a, b)
+        if not a.lastPosition or not b.lastPosition then return false end
+        local distA = fastDistanceSquared(a.lastPosition, camera.CFrame.Position)
+        local distB = fastDistanceSquared(b.lastPosition, camera.CFrame.Position)
+        return distA < distB
+    end)
+end
+
+-- Инициализация ESP
+local function initESP()
+    if not ESP_CONFIG.ENABLED then return end
+    
+    -- Создаем GUI для ESP
     local espGui = Instance.new("ScreenGui")
-    espGui.Name = "SimpleESP"
+    espGui.Name = "UltraESP"
     espGui.Parent = player:WaitForChild("PlayerGui")
     espGui.ResetOnSpawn = false
     
-    local espStore = {}
-    
-    -- Функция создания ESP для игрока
-    local function createESP(targetPlayer)
-        if targetPlayer == player then return end
-        
-        local espData = {
-            box = nil,
-            nameTag = nil,
-            healthTag = nil,
-            distanceTag = nil
-        }
-        
-        -- Создаем элементы
-        if CONFIG.ESP.SHOW_BOX then
-            local box = Instance.new("Frame")
-            box.Parent = espGui
-            box.BackgroundTransparency = 1
-            box.BorderSizePixel = 1
-            box.BorderColor3 = CONFIG.ESP.BOX_COLOR
-            box.ZIndex = 10
-            espData.box = box
-        end
-        
-        if CONFIG.ESP.SHOW_NAME then
-            local nameTag = Instance.new("TextLabel")
-            nameTag.Parent = espGui
-            nameTag.BackgroundTransparency = 0.7
-            nameTag.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            nameTag.TextColor3 = CONFIG.ESP.TEXT_COLOR
-            nameTag.TextSize = CONFIG.ESP.TEXT_SIZE
-            nameTag.Font = Enum.Font.GothamBold
-            nameTag.TextStrokeTransparency = 0.7
-            nameTag.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-            nameTag.Text = targetPlayer.Name
-            nameTag.Size = UDim2.new(0, 0, 0, 0)
-            nameTag.BorderSizePixel = 0
-            espData.nameTag = nameTag
-        end
-        
-        if CONFIG.ESP.SHOW_HEALTH then
-            local healthTag = Instance.new("TextLabel")
-            healthTag.Parent = espGui
-            healthTag.BackgroundTransparency = 0.7
-            healthTag.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            healthTag.TextColor3 = CONFIG.ESP.TEXT_COLOR
-            healthTag.TextSize = CONFIG.ESP.TEXT_SIZE
-            healthTag.Font = Enum.Font.GothamBold
-            healthTag.TextStrokeTransparency = 0.7
-            healthTag.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-            healthTag.Size = UDim2.new(0, 0, 0, 0)
-            healthTag.BorderSizePixel = 0
-            espData.healthTag = healthTag
-        end
-        
-        if CONFIG.ESP.SHOW_DISTANCE then
-            local distanceTag = Instance.new("TextLabel")
-            distanceTag.Parent = espGui
-            distanceTag.BackgroundTransparency = 0.7
-            distanceTag.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-            distanceTag.TextColor3 = CONFIG.ESP.TEXT_COLOR
-            distanceTag.TextSize = CONFIG.ESP.TEXT_SIZE
-            distanceTag.Font = Enum.Font.GothamBold
-            distanceTag.TextStrokeTransparency = 0.7
-            distanceTag.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-            distanceTag.Size = UDim2.new(0, 0, 0, 0)
-            distanceTag.BorderSizePixel = 0
-            espData.distanceTag = distanceTag
-        end
-        
-        espStore[targetPlayer] = espData
-    end
-    
-    -- Функция удаления ESP
-    local function removeESP(targetPlayer)
-        local espData = espStore[targetPlayer]
-        if not espData then return end
-        
-        if espData.box then espData.box:Destroy() end
-        if espData.nameTag then espData.nameTag:Destroy() end
-        if espData.healthTag then espData.healthTag:Destroy() end
-        if espData.distanceTag then espData.distanceTag:Destroy() end
-        
-        espStore[targetPlayer] = nil
-    end
-    
-    -- Функция обновления ESP
-    local function updateESP()
-        for targetPlayer, espData in pairs(espStore) do
-            local character = targetPlayer.Character
-            if not character then
-                if espData.box then espData.box.Visible = false end
-                if espData.nameTag then espData.nameTag.Visible = false end
-                if espData.healthTag then espData.healthTag.Visible = false end
-                if espData.distanceTag then espData.distanceTag.Visible = false end
-                continue
-            end
-            
-            local humanoid = character:FindFirstChild("Humanoid")
-            local rootPart = character:FindFirstChild("HumanoidRootPart") or 
-                            character:FindFirstChild("Torso") or 
-                            character:FindFirstChild("UpperTorso")
-            
-            if not humanoid or not rootPart then
-                if espData.box then espData.box.Visible = false end
-                if espData.nameTag then espData.nameTag.Visible = false end
-                if espData.healthTag then espData.healthTag.Visible = false end
-                if espData.distanceTag then espData.distanceTag.Visible = false end
-                continue
-            end
-            
-            -- Получаем позицию на экране
-            local position = rootPart.Position
-            local screenPos, onScreen = camera:WorldToViewportPoint(position)
-            
-            -- Проверяем дистанцию
-            local distance = (position - camera.CFrame.Position).Magnitude
-            if distance > CONFIG.ESP.MAX_DISTANCE then
-                if espData.box then espData.box.Visible = false end
-                if espData.nameTag then espData.nameTag.Visible = false end
-                if espData.healthTag then espData.healthTag.Visible = false end
-                if espData.distanceTag then espData.distanceTag.Visible = false end
-                continue
-            end
-            
-            if not onScreen then
-                if espData.box then espData.box.Visible = false end
-                if espData.nameTag then espData.nameTag.Visible = false end
-                if espData.healthTag then espData.healthTag.Visible = false end
-                if espData.distanceTag then espData.distanceTag.Visible = false end
-                continue
-            end
-            
-            -- Простой бокс (2D прямоугольник)
-            if espData.box then
-                espData.box.Visible = CONFIG.ESP.SHOW_BOX
-                espData.box.Position = UDim2.new(0, screenPos.X - 25, 0, screenPos.Y - 50)
-                espData.box.Size = UDim2.new(0, 50, 0, 100)
-                
-                -- Цвет бокса в зависимости от здоровья
-                local healthPercent = humanoid.Health / humanoid.MaxHealth
-                if healthPercent > 0.7 then
-                    espData.box.BorderColor3 = Color3.fromRGB(0, 255, 0)
-                elseif healthPercent > 0.3 then
-                    espData.box.BorderColor3 = Color3.fromRGB(255, 255, 0)
-                else
-                    espData.box.BorderColor3 = Color3.fromRGB(255, 0, 0)
-                end
-            end
-            
-            -- Текст с именем
-            if espData.nameTag then
-                espData.nameTag.Visible = CONFIG.ESP.SHOW_NAME
-                espData.nameTag.Position = UDim2.new(0, screenPos.X - 50, 0, screenPos.Y - 70)
-                espData.nameTag.Size = UDim2.new(0, 100, 0, 20)
-                espData.nameTag.Text = targetPlayer.Name
-            end
-            
-            -- Текст со здоровьем
-            if espData.healthTag then
-                espData.healthTag.Visible = CONFIG.ESP.SHOW_HEALTH
-                espData.healthTag.Position = UDim2.new(0, screenPos.X - 50, 0, screenPos.Y + 60)
-                espData.healthTag.Size = UDim2.new(0, 100, 0, 20)
-                espData.healthTag.Text = string.format("HP: %d/%d", 
-                    math.floor(humanoid.Health), 
-                    math.floor(humanoid.MaxHealth))
-            end
-            
-            -- Текст с дистанцией
-            if espData.distanceTag then
-                espData.distanceTag.Visible = CONFIG.ESP.SHOW_DISTANCE
-                espData.distanceTag.Position = UDim2.new(0, screenPos.X - 50, 0, screenPos.Y + 85)
-                espData.distanceTag.Size = UDim2.new(0, 100, 0, 20)
-                espData.distanceTag.Text = string.format("%dm", math.floor(distance))
-            end
-        end
-    end
-    
-    -- Инициализация ESP
+    -- Создаем ESP для всех игроков
     for _, targetPlayer in pairs(players:GetPlayers()) do
         createESP(targetPlayer)
     end
     
-    -- Подписка на новых игроков
+    -- Подписка на события
     players.PlayerAdded:Connect(createESP)
     players.PlayerRemoving:Connect(removeESP)
     
-    -- Цикл обновления ESP
-    spawn(function()
-        while wait(CONFIG.ESP.UPDATE_INTERVAL) do
-            if espGui.Parent then
-                updateESP()
-            else
-                break
+    -- Основной цикл обновления
+    runService.RenderStepped:Connect(function()
+        processESPQueue()
+        
+        -- Обновляем несколько объектов за кадр
+        local updatesThisFrame = 0
+        for i = 1, math.min(#updateQueue, ESP_CONFIG.MAX_UPDATES_PER_FRAME) do
+            local esp = updateQueue[i]
+            if esp then
+                updateSingleESP(esp)
+                updatesThisFrame = updatesThisFrame + 1
+            end
+        end
+        
+        -- Если нужно, сдвигаем очередь для следующего кадра
+        if updatesThisFrame > 0 then
+            for i = 1, updatesThisFrame do
+                table.remove(updateQueue, 1)
             end
         end
     end)
 end
+
+-- Очистка при отключении
+game:GetService("RunService").Heartbeat:Connect(function()
+    -- Периодическая оптимизация
+    for targetPlayer, esp in pairs(espData) do
+        if not players:FindFirstChild(targetPlayer.Name) then
+            removeESP(targetPlayer)
+        end
+    end
+end)
 
 --========== ОСНОВНОЙ ЦИКЛ ОБНОВЛЕНИЯ ==========--
 -- Обновление собственного HP
